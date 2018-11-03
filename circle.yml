@@ -8,6 +8,7 @@ jobs:
       - PATH: /usr/local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/home/circleci/.local/bin
     steps:
       - checkout
+      - setup_remote_docker
       - run: deploy/bin/publish-image
 
 workflows:
