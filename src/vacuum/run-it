@@ -15,11 +15,13 @@ setup() {
 }
 
 vacuum_weekly(){
-  vacuum 'dw.markets_dim' && \
-    vacuum 'dw.portfolio_dim'
+  _vacuum 'dw.markets_dim' && \
+    _vacuum 'dw.portfolio_dim'
 
-  vacuum 'dw.currency_fact' 'full' && \
-    vacuum 'dw.equities_fact' 'full'
+  _vacuum 'dw.currency_fact'   'full' && \
+    _vacuum 'dw.equities_fact' 'full' && \
+    _vacuum 'dw.markets_dim'   'full' && \
+    _vacuum 'dw.portfolio_dim' 'full'
 }
 
 case "$task" in

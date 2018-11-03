@@ -7,4 +7,4 @@
 
 ## -- jobs ----------------------------------------
 ### vacuum
-55 0 * * 6 skilbjo . /home/skilbjo/.profilelocal; cd "$app_dir" ; "$cmd vacuum" >/dev/null 2>&1
+55 0 * * 6 skilbjo . /home/skilbjo/.profilelocal; cd "$app_dir" ; "$cmd vacuum-weekly" >/dev/null 2>&1

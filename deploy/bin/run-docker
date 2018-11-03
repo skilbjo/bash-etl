@@ -44,5 +44,6 @@ get_current_artifacts && \
 docker run --rm \
   --name="$(echo $app_name $@ | tr ' ' '_')" \
   -e db_uri="$(echo $db_uri)" \
+  -e healthchecks_vacuum="$(echo $healthchecks_vacuum)" \
   "$img" \
   "$job_cmd" $@
