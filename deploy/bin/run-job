@@ -17,7 +17,7 @@ case "$_job" in
   datalake-etl )
     if [[ -z $_date ]]; then _date="$(date +%F)"; fi
     cmd="${src_dir}/datalake-etl/run-it" ;;
-  vacuum-weekly )
+  vacuum )
     cmd="${src_dir}/vacuum/run-it weekly" ;;
   * )
     echo 'No args provided' && exit 1 ;;
