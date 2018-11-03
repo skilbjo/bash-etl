@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+set -eou pipefail
+
+dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+src_dir="${dir}/../../src"
+_job="$1"
+set +u; _date="$2"; set -u
+cmd=''
+
+# Prereqs
+case "$(uname -a)" in
+  *arm* )
+    set +e; eval "${dir}/apk"; update-ca-certificates; apk fix || echo 'Unable to reach apk...'; set -e; ;; # set +e when apk not available
+esac
+
+case "$_job" in
+  datalake-etl )
+    if [[ -z $_date ]]; then _date="$(date +%F)"; fi
+    cmd="${src_dir}/datalake-etl/run-it" ;;
+  vacuum-weekly )
+    cmd="${src_dir}/vacuum/run-it weekly" ;;
+  * )
+    echo 'No args provided' && exit 1 ;;
+esac
+
+eval "$cmd"

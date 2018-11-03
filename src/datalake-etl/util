@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+
+dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+job_name=$(basename $dir)
+resources_dir="${dir}/../../resources/${job_name}"
+tmp_dir="$(mkdir -p "/tmp/${job_name}" && echo "/tmp/${job_name}")"
+
+_gzip(){
+  local file="$1"
+
+  if [[ -f ${tmp_dir}/${file}.csv.gz ]]; then rm "${tmp_dir}/${file}.csv.gz"; fi
+
+  gzip -9 "${tmp_dir}/${file}.csv"
+}
+
+_psql(){
+  local db="$1"
+  local cxn_str="$(eval echo "\$${db}_db")"
+
+  psql "$cxn_str" \
+    -v ON_ERROR_STOP=1 \
+    -AF',' \
+    --pset footer \
+    -f "${resources_dir}/${db}.sql"
+}

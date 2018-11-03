@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+set -eou pipefail
+
+dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+job_name=$(basename $dir)
+resources_dir="${dir}/../../resources/${job_name}"
+tmp_dir="$(mkdir -p "/tmp/${job_name}" && echo "/tmp/${job_name}")"
+set +u; _date="$1"; set -u
+set +u; task="$2"; set -u
+
+setup() {
+  src_dir="${dir}/.."
+
+  source "${src_dir}/util"
+  source "${dir}/util"
+
+  if [[ $(whoami) == 'root' ]]; then
+    source "${src_dir}/athena"
+    add_aws_vars
+  else
+    source "${src_dir}/athena.user"
+  fi
+
+  if [[ -z $_date ]]; then
+    _date=$(date +%F)
+  fi
+}
+
+case "$task" in
+  prod )
+    setup && \
+      echo '' && \
+      ping_healthchecks '1' ;;
+  * )
+    echo 'In datalake-etl, and no args given' && exit 1 ;;
+esac

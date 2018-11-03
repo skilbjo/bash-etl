@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+set -eou pipefail
+
+dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+app=$(basename $(dirname $dir))
+image_tag='dev'
+
+cd "${dir}/.."
+cp "${dir}/../deploy/default/Dockerfile" Dockerfile
+
+docker build --rm -t $app:$image_tag .
+docker tag $app:$image_tag $app
+
+rm Dockerfile

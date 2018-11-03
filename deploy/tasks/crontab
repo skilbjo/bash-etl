@@ -1,0 +1,10 @@
+## -- variables -----------------------------------
+  SHELL=/bin/bash
+  PATH=:/bin:/usr/bin:/usr/local/bin:/usr/sbin:/usr/local/sbin
+  MAILTO=john.skilbeck@gmail.com
+  cmd="deploy/bin/run-docker"
+  app_dir="/home/skilbjo/deploy/app/bssh-etl"
+
+## -- jobs ----------------------------------------
+### vacuum
+55 0 * * 6 skilbjo . /home/skilbjo/.profilelocal; cd "$app_dir" ; "$cmd vacuum" >/dev/null 2>&1

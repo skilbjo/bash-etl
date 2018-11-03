@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+set -eou pipefail
+
+dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+app_name=$(basename $(dirname $dir))
+
+# live
+  #-e db_uri="$(echo $db_uri)" \
+# for test
+  #-e jdbc_db_uri="$(echo 'postgres://postgres@192.168.99.100:5432/postgres')" \
+
+docker run --rm -it \
+  --name="$(echo $app_name)" \
+  -e db_uri="$(echo $db_uri)" \
+  -e aws_access_key_id="$(cat ~/.aws/credentials | grep -A 2 skilbjo-robot | grep aws_access_key_id | awk '{print $3}')" \
+  -e aws_secret_access_key="$(cat ~/.aws/credentials | grep -A 2 skilbjo-robot | grep aws_secret_access_key | awk '{print $3}')" \
+  "$app_name":dev bash

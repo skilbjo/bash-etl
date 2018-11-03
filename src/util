@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+set -eou pipefail
+
+slack(){
+  local msg="${1}"
+
+  set +e
+  curl -X POST \
+    -H 'Content-type: application/json' \
+    --data '{"text":"'"${msg}"'"}' \
+    https://hooks.slack.com/services/${slack_api_key}
+  set -e
+}
+
+ping_healthchecks(){
+  job_uuid="$1"
+
+  curl -fsS --retry 3 "https://hc-ping.com/${job_uuid}"
+}

@@ -1,0 +1,17 @@
+version: 2
+jobs:
+  build:
+    working_directory: ~/bash-etl
+    docker:
+    - image: circleci/clojure:lein-2.8.1
+    environment:
+      - PATH: /usr/local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/home/circleci/.local/bin
+    steps:
+      - checkout
+      - run: deploy/bin/publish-image
+
+workflows:
+  version: 2
+  build:
+    jobs:
+      - build

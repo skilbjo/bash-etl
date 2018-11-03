@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+set -eou pipefail
+
+dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+job_name=$(basename $dir)
+resources_dir="${dir}/../../resources/${job_name}"
+tmp_dir="$(mkdir -p "/tmp/${job_name}" && echo "/tmp/${job_name}")"
+set +u; task="$1"; set -u
+
+setup() {
+  src_dir="${dir}/.."
+
+  source "${src_dir}/util"
+  source "${dir}/util"
+}
+
+vacuum_weekly(){
+  vacuum 'dw.markets_dim' && \
+    vacuum 'dw.portfolio_dim'
+
+  vacuum 'dw.currency_fact' 'full' && \
+    vacuum 'dw.equities_fact' 'full'
+}
+
+case "$task" in
+  weekly )
+    setup && \
+      vacuum_weekly && \
+      ping_healthchecks "$healthchecks_vacuum" ;;
+  * ) echo 'No args provided' && exit 1 ;;
+esac
