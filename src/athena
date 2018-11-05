@@ -5,7 +5,6 @@ get_state() {
   local query_id="$1"
 
   local status="$(aws athena \
-    --profile personal \
     --region us-east-1 \
     get-query-execution \
     --query-execution-id "$query_id" | \
@@ -43,7 +42,6 @@ wait_til_finished() {
     case "$state" in
        FAILED | CANCELLED )
         aws athena \
-          --profile personal \
           --region us-east-1 \
           get-query-execution \
           --query-execution-id "$query_id" | \
