@@ -7,11 +7,21 @@ _job="$1"
 set +u; _date="$2"; set -u
 cmd=''
 
-# Prereqs
-case "$(uname -a)" in
-  *arm* )
-    set +e; eval "${dir}/apk"; update-ca-certificates; apk fix || echo 'Unable to reach apk...'; set -e; ;; # set +e when apk not available
-esac
+prereqs(){
+  if [[ $(whoami) == 'root' ]]; then
+    case $(uname -a) in
+      *arm* )
+        set +e; eval "${dir}/apk-arm"; update-ca-certificates; apk fix || echo 'Unable to reach apk...'; set -e; ;; # set +e when apk not available
+    esac
+
+    case $(cat /etc/os-release | grep -i '^name=' | sed 's/NAME=//' | sed 's/^"\(.*\)"$/\1/') in
+      'Alpine Linux' )
+        update-ca-certificates; apk fix || echo 'Unable to reach apk...' ;; # Any quirks with Alpine can go here
+      'Debian GNU/Linux' )
+        echo '' ;; # Any quirks with Debian can go here
+    esac
+  fi
+}
 
 case "$_job" in
   datalake-etl )
@@ -23,4 +33,5 @@ case "$_job" in
     echo 'No args provided' && exit 1 ;;
 esac
 
-eval "$cmd"
+prereqs && \
+  eval "$cmd"

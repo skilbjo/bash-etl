@@ -17,8 +17,10 @@ setup() {
   if [[ $(whoami) == 'root' ]]; then
     source "${src_dir}/athena"
     add_aws_vars
+  elif [[ $(whoami) == 'skilbjo' ]]; then
+    source "/Users/skilbjo/dev/engineering/src/athena.user"
   else
-    source "${src_dir}/athena.user"
+    >&2 echo "user is: $(whoami), add to setup fn"
   fi
 
   if [[ -z $_date ]]; then
