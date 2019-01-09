@@ -1,36 +1,44 @@
 #!/usr/bin/env bash
 set -eou pipefail
 
-dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )/../../" && pwd )" && cd "$dir"
+app="$(basename $(pwd))"
+registry='quay.io'
+image="${registry}/skilbjo/${app}"
 
-publish_x86() {
-  if [[ -f Dockerfile ]]; then rm Dockerfile; fi
-  if [[ -d target     ]]; then rm -rf target; fi
-
-  cat "${dir}/../default/publish-image" | \
-    sed "s/tag='latest'/tag='x86'/g" | \
-    sed 's/$image:$CIRCLE_SHA1/$image:$CIRCLE_SHA1-x86/g' | \
-    sed 's/tag="${CIRCLE_BRANCH}_${CIRCLE_BUILD_NUM}"/tag="${CIRCLE_BRANCH}_${CIRCLE_BUILD_NUM}_x86"/g' \
-    >>"${dir}/publish-x86"
-
-  chmod u+x "${dir}/publish-x86" && \
-    "${dir}/publish-x86"
+setup(){
+  docker login -u "$QUAY_ROBOT_USERNAME" -p "$QUAY_ROBOT_PASSWORD" "$registry"
 }
 
-publish_arm() {
+publish(){
+  set +u; local tag="$1"; set -u
+
+  if [[ -z $tag ]]; then
+    cat "${dir}/deploy/default/Dockerfile" >Dockerfile
+
+    if [[ $CIRCLE_BRANCH == master ]]; then
+      tag='latest'
+    else
+      tag="${CIRCLE_BRANCH}_${CIRCLE_BUILD_NUM}"
+    fi
+  else
+    cat "${dir}/deploy/default/${tag}.Dockerfile" >Dockerfile
+
+    if [[ $CIRCLE_BRANCH == master ]]; then
+      tag="${tag}"
+    else
+      tag="${tag}-${CIRCLE_BRANCH}_${CIRCLE_BUILD_NUM}"
+    fi
+  fi
+
+  docker build --rm -t "${image}:${tag}" .
+  docker tag "${image}:${tag}" "${image}:${CIRCLE_SHA1}"
+  docker push "$image"
+
   if [[ -f Dockerfile ]]; then rm Dockerfile; fi
-  if [[ -d target     ]]; then rm -rf target; fi
-
-  cat "${dir}/../default/publish-image" | \
-    sed "s/cat '.\/deploy\/default\/Dockerfile'/cat '.\/deploy\/default\/arm.Dockerfile'/g" | \
-    sed "s/tag='latest'/tag='arm'/g" | \
-    sed 's/$image:$CIRCLE_SHA1/$image:$CIRCLE_SHA1-arm/g' | \
-    sed 's/tag="${CIRCLE_BRANCH}_${CIRCLE_BUILD_NUM}"/tag="${CIRCLE_BRANCH}_${CIRCLE_BUILD_NUM}_arm"/g' \
-    >>"${dir}/publish-arm"
-
-  chmod u+x "${dir}/publish-arm" && \
-    "${dir}/publish-arm"
 }
 
-publish_x86 && \
-  publish_arm
+setup && \
+  publish
+
+publish 'arm'
