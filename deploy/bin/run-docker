@@ -14,7 +14,7 @@ case "$(uname -m)" in
     arch='arm' ;;
 esac
 
-img="quay.io/skilbjo/$app_name:$arch"
+img="quay.io/skilbjo/$app:$arch"
 job_cmd='usr/local/deploy/bin/run-job'
 
 get_current_artifacts(){
@@ -24,10 +24,10 @@ get_current_artifacts(){
   # remove all app containers
   set +e
   ## below not needed as the docker run cmd has the --rm flag
-  #docker ps -a | grep "$app_name" | awk '{print $1}' | uniq | xargs docker rm -f
+  #docker ps -a | grep "$app" | awk '{print $1}' | uniq | xargs docker rm -f
 
   # remove all app images
-  docker images | grep "$app_name" | awk '{print $3}' | uniq | xargs docker rmi -f
+  docker images | grep "$app" | awk '{print $3}' | uniq | xargs docker rmi -f
   set -e
 }
 
@@ -43,7 +43,7 @@ get_current_artifacts && \
   update_crond
 
 docker run --rm \
-  --name="$(echo $app_name $@ | tr ' ' '_')" \
+  --name="$(echo $app $@ | tr ' ' '_')" \
   -e db_uri="$(echo $db_uri)" \
   -e healthchecks_vacuum="$(echo $healthchecks_vacuum)" \
   "$img" \
