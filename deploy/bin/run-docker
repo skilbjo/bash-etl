@@ -36,7 +36,7 @@ update_crond(){
     ('Linux') sed -i '1i SHELL=/usr/bin/bash'         "${dir}/deploy/tasks/crontab"
               sed -i '1i cmd="deploy/bin/run-docker"' "${dir}/deploy/tasks/crontab" ;;
   esac
-  sudo cp "${dir}/deploy/tasks/crontab" >"/etc/cron.d/${app}"
+  sudo bash -c "cat ${dir}/deploy/tasks/crontab >/etc/cron.d/${app}"
 }
 
 get_current_artifacts && \

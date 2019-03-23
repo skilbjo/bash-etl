@@ -4,6 +4,7 @@ set -eou pipefail
 dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )/../../" && pwd )" && cd "$dir"
 app="$(basename $(pwd))"
 src_dir="${dir}/src"
+tmp_dir='/tmp'
 _job="$1"
 set +u; _date="$2"; set -u
 cmd=''
@@ -14,7 +15,6 @@ prereqs(){
       arm* )
         deploy_dir='/usr/local/deploy/bin'
         set +e; eval "${deploy_dir}/apk-arm"; update-ca-certificates; apk fix || echo 'Unable to reach apk...'; set -e; # set +e when apk not available
-        mv /app.jar "${tmp_dir}/${app}.jar" ;;
     esac
 fi
 }
