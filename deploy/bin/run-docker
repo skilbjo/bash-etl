@@ -7,10 +7,10 @@ arch=""
 
 cd "${dir}/../.."
 
-case "$(uname -a)" in
-  *amd64* | *x_86* | *x86_64* )
+case "$(uname -m)" in
+  amd64* | x_86* | x86_64* )
     arch="x86" ;;
-  *arm* )
+  arm* )
     arch="arm" ;;
 esac
 
@@ -33,9 +33,10 @@ get_current_artifacts(){
 
 update_crond(){
   case "$(uname)" in
-    ('Linux')   sudo cp "${dir}/../tasks/crontab" "/etc/cron.d/${app_name}" ;;
-    ('FreeBSD') sudo cp "${dir}/../tasks/crontab" "/var/cron/tabs/${app_name}" ;;
+    ('Linux') sed -i '1i SHELL=/usr/bin/bash'         "${dir}/deploy/tasks/crontab"
+              sed -i '1i cmd="deploy/bin/run-docker"' "${dir}/deploy/tasks/crontab" ;;
   esac
+  sudo cp "${dir}/deploy/tasks/crontab" >"/etc/cron.d/${app}"
 }
 
 get_current_artifacts && \
