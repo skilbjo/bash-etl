@@ -1,21 +1,21 @@
 #!/usr/bin/env bash
 set -eou pipefail
 
-dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-app_name=$(basename $(dirname $(dirname $dir)))
-arch=""
+dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )/../../" && pwd )" && cd "$dir"
+app="$(basename $(pwd))"
+arch=''
 
 cd "${dir}/../.."
 
 case "$(uname -m)" in
   amd64* | x_86* | x86_64* )
-    arch="x86" ;;
+    arch='x86' ;;
   arm* )
-    arch="arm" ;;
+    arch='arm' ;;
 esac
 
 img="quay.io/skilbjo/$app_name:$arch"
-job_cmd="usr/local/deploy/bin/run-job"
+job_cmd='usr/local/deploy/bin/run-job'
 
 get_current_artifacts(){
   # any scripts need updating?
