@@ -28,8 +28,20 @@ insights(){
   curl "$url"
 }
 
+influxdb(){ # https://v2.docs.influxdata.com/v2.0/write-data/
+  curl \
+    --header "Authorization: Token ${influxdb_api_key}" \
+    --data-raw 'mem,host=host1 used_percent=23.43234543 1556896326' \
+    'https://us-west-2-1.aws.cloud2.influxdata.com/api/v2/write?org=bf6ebe6c84c539b8&bucket=test'
+    #--data-raw 'mem,host=host1 used_percent=23.43234543 1556892576842902000' \
+    #--data-raw 'cpu,host=host1 usage_user=3.8234,usage_system=4.23874 1556892726597397000' \
+    #--data-raw 'mem,host=host1 used_percent=21.83599203 1556892777007291000' \
+}
+
 case "$task" in
   insights ) insights ;;
+
+  influx )   influxdb ;;
 
   testing ) insights
     echo 'Job complete!' && sleep "$(echo "60 * 60 * 24 * 7" | bc)" ;;
