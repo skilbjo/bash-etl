@@ -1,38 +1,78 @@
 #!/usr/bin/env bash
-set -eou pipefail
 
 dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-job_name=$(basename $dir)
-resources_dir="${dir}/../../resources/${job_name}"
-tmp_dir="$(mkdir -p "/tmp/${job_name}" && echo "/tmp/${job_name}")"
-set +u; _date="$1"; set -u
-set +u; task="$2"; set -u
+src_dir="${dir}/.."
+source "${src_dir}/util"
+source "${dir}/util"
+util_setup "$dir"
 
-setup() {
-  src_dir="${dir}/.."
+_date=''
+task=''
 
-  source "${src_dir}/util"
-  source "${dir}/util"
+usage(){ echo "Usage: datalake-etl: ${0} [--date <date>] [--task <task>]" 1>&2
+  echo "       --prod-run || --report-metrics to ping datadog           " 1>&2; exit 1; }
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -t|--task)  task="$2"; shift ;;
+    -d|--date) _date="$2"; shift ;;
+    --backfill) task='backfill' ;;
+    --testing)  task='testing' ;;
+    *) break ;;
+  esac
+  shift
+done
+if [[ -z $task ]]; then usage; fi
+if [[ $task == 'testing' ]] || [[ $task == 'backfill' ]]; then
+  echo 'break' >/dev/null
+elif [[ -z $_date ]]; then
+  usage
+fi
 
-  if [[ $(whoami) == 'root' ]]; then
-    source "${src_dir}/athena"
-    add_aws_vars
-  elif [[ $(whoami) == 'skilbjo' ]]; then
-    source "/Users/skilbjo/dev/engineering/src/athena.user"
-  else
-    >&2 echo "user is: $(whoami), add to setup fn"
-  fi
+some_jobs(){
+  local _date="$1"
 
-  if [[ -z $_date ]]; then
-    _date=$(date +%F)
-  fi
+  echo "Processing jobs for: $_date ..."
+
+  echo 'Some jobs...........' && "${dir}/service/run-it" --task builds-partitioned --date "$_date"
 }
 
+lambda_jobs(){
+  local _date="$1"
+  local start="$SECONDS"
+
+  echo "Processing lambda jobs (no secure resourse needed)....for date: $_date"
+
+  echo 'Some jobs...........' && "${dir}/service/run-it" --task builds-partitioned --date "$_date"
+
+  echo "datalake-etl lambda-jobs took $(echo "$(( $SECONDS - $start )) / 60" | bc) minutes to complete"
+}
+
+circleci_jobs(){
+  local _date="$1"
+  local start="$SECONDS"
+
+  echo "Processing circleci jobs (no secure resourse needed)....for date: $_date"
+
+  echo 'Some jobs...........' && lambda_jobs "$_date"
+  echo 'Some jobs...........' && "${dir}/service/run-it" --task builds-partitioned --date "$_date"
+
+  echo "datalake-etl circleci-jobs took $(echo "$(( $SECONDS - $start )) / 60" | bc) minutes to complete"
+}
+
+
 case "$task" in
-  prod )
-    setup && \
-      echo '' && \
-      ping_healthchecks '1' ;;
-  * )
-    echo 'In datalake-etl, and no args given' && exit 1 ;;
+  prod )     echo '' && \
+               ping_healthchecks '1' ;;
+  lambda )   lambda_jobs "$_date" ;;
+  circleci ) circleci_jobs "$_date" && \
+               ping_healthchecks '1' ;;
+  backfill ) _date='2019-01-29' && day="$_date"
+    for i in {1..90}; do
+      set +e; echo 'Some jobs...........' && "${dir}/service/run-it" --task builds-partitioned --date "$_date"; set -e
+      day="$(add_one_day "$day")"
+    done ;;
+  testing ) _date='2019-01-29' && day="$_date"
+    set +e; echo 'Some jobs...........' && "${dir}/service/run-it" --task builds-partitioned --date "$_date"; set -e
+    echo 'Job complete!' && sleep "$(echo "60 * 60 * 24 * 7" | bc)" ;;
+  * )    echo 'In datalake-etl, and no args given' && exit 1 ;;
 esac

@@ -1,25 +1,78 @@
 #!/usr/bin/env bash
 
-dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-job_name=$(basename $dir)
-resources_dir="${dir}/../../resources/${job_name}"
-tmp_dir="$(mkdir -p "/tmp/${job_name}" && echo "/tmp/${job_name}")"
+extract_large_table(){
+  local job='datalake-etl'
+  local db="$1" && db="$(echo "$db" | tr '-' '_')"
+  local cxn_str="$(eval echo "\$${db}_db")"
+  local schema_and_table="$2" && schema_and_table="$(echo "$schema_and_table" | tr '-' '_')"
+  local table="$(echo $schema_and_table | sed 's/.*\.//')"
+  local time_column="$3"
+  local _date="$4"
+  local columns="$5"
+  local start_hour=00
+  local end_date="$(add_one_day "$_date")"
 
-_gzip(){
-  local file="$1"
+  for end_hour in $(seq 1 23); do
+    end_hour="$(echo "$end_hour" | bc | awk '{printf "%02d\n", $0}')"
 
-  if [[ -f ${tmp_dir}/${file}.csv.gz ]]; then rm "${tmp_dir}/${file}.csv.gz"; fi
+    psql "$cxn_str" \
+      -v ON_ERROR_STOP=1 \
+      -c "\copy ( select $columns from $schema_and_table where $time_column between '${_date} ${start_hour}:00:00' and '${_date} ${end_hour}:00:00') to '/tmp/${job}/${table}-${end_hour}.csv' csv delimiter ',';"
 
-  gzip -9 "${tmp_dir}/${file}.csv"
+    start_hour="$(echo "$start_hour" + 1 | bc | awk '{printf "%02d\n", $0}')"
+  done
+
+  # final iteration
+  psql "$cxn_str" \
+    -v ON_ERROR_STOP=1 \
+    -v date="'$_date'" \
+    -c "\copy (select $columns from $schema_and_table where $time_column between '${_date} 23:00:00' and '${end_date}') to '/tmp/${job}/${table}-24.csv' csv delimiter ',';"
+
+  for i in $(seq 1 24); do   # coalesce hour files into single file
+    i="$(echo "$i" | bc | awk '{printf "%02d\n", $0}')"
+    cat "${tmp_dir}/${table}-${i}.csv" >>"${tmp_dir}/${table}.csv"
+  done
+
+  local number_of_underscores="$(echo "$table" | tr -cd '_' | wc -c | awk '{print $1}')"
+  if [[ $number_of_underscores -gt 0 ]]; then
+    mv "${tmp_dir}/${table}.csv" "${tmp_dir}/$(echo "$table" | tr '_' '-').csv" # /tmp/direct-etl/workflow_jobs -> /tmp/direct-etl/workflow-jobs
+  fi
 }
 
-_psql(){
-  local db="$1"
+extract_large_table_by_date(){ # same fn as above, but no looping if we can't loop
+  local job='datalake-etl'
+  local db="$1" && db="$(echo "$db" | tr '-' '_')"
   local cxn_str="$(eval echo "\$${db}_db")"
+  local schema_and_table="$2" && schema_and_table="$(echo "$schema_and_table" | tr '-' '_')"
+  local table="$(echo $schema_and_table | sed 's/.*\.//')"
+  local time_column="$3"
+  local _date="$4"
+  local columns="$5"
+  local end_date="$(add_one_day "$_date")"
 
   psql "$cxn_str" \
     -v ON_ERROR_STOP=1 \
-    -AF',' \
-    --pset footer \
-    -f "${resources_dir}/${db}.sql"
+    -c "\copy ( select $columns from $schema_and_table where $time_column between '${_date}' and '${end_date}') to '/tmp/${job}/${table}.csv' csv delimiter ',';"
+
+  local number_of_underscores="$(echo "$table" | tr -cd '_' | wc -c | awk '{print $1}')"
+  if [[ $number_of_underscores -gt 0 ]]; then
+    mv "${tmp_dir}/${table}.csv" "${tmp_dir}/$(echo "$table" | tr '_' '-').csv" # /tmp/direct-etl/workflow_jobs -> /tmp/direct-etl/workflow-jobs
+  fi
+}
+
+metric_job_ran(){
+  local metric='job_ran'
+  local job='datalake-etl'
+  local task="$1"
+
+  datadog_metric "$metric" "$job" "$task" '' '1' 2>/dev/null
+}
+
+metric_runtime(){
+  local metric='runtime'
+  local job='datalake-etl'
+  local task="$1"
+  local minutes=$2
+
+  datadog_metric "$metric" "$job" "$task" '' "$minutes" 2>/dev/null
 }

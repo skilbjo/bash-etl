@@ -11,8 +11,11 @@ app_name=$(basename $(dirname $dir))
 
 docker run --rm -it \
   --name="$(echo $app_name)" \
-  -e db_uri="$(echo $db_uri)" \
-  -e healthchecks_vacuum="$(echo $healthchecks_vacuum)" \
+  --network host \
   -e aws_access_key_id="$(cat ~/.aws/credentials | grep -A 2 skilbjo-robot | grep aws_access_key_id | awk '{print $3}')" \
   -e aws_secret_access_key="$(cat ~/.aws/credentials | grep -A 2 skilbjo-robot | grep aws_secret_access_key | awk '{print $3}')" \
+  -e env="$(echo 'dev')" \
+  -e db_uri="$(echo $db_uri)" \
+  -e circleci_api_key="$(echo $circleci_api_key)" \
+  -e healthchecks_vacuum="$(echo $healthchecks_vacuum)" \
   "$app_name":dev bash

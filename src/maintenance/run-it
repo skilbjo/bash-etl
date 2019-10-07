@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+
+dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )" && cd "$dir"
+src_dir="${dir}/.."
+source "${src_dir}/util"
+source "${dir}/util"
+util_setup "$dir"
+
+task=''
+
+usage(){ echo "Usage: maintenance: ${0} [--task <task>]" 1>&2; exit 1; }
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -t|--task)  task="$2"; shift ;;
+    --testing)  task='testing' ;;
+    *) break ;;
+  esac
+  shift
+done
+if [[ -z $task ]]; then usage; fi
+
+case "$task" in
+  vacuum )           "${dir}/vacuum" --task weekly && \
+                       ping_healthchecks "$healthchecks_vacuum" ;;
+  kill-old-queries ) _psql_maintenance 'old-queries' && \
+                       kill_pids 'old-queries' && \
+                       ping_healthchecks 'e' ;;
+  remove-locks )     _psql_maintenance 'locks' && \
+                       kill_pids 'locks' && \
+                       ping_healthchecks 'e' ;;
+  schema-backup )    "${dir}/schema-backup" ;;
+  testing )  psql "$admin_db_uri" -c 'create index on dw.some_table (date);' ;;
+  * ) echo 'In maintenance job, bot got no args' && exit 1 ;;
+esac

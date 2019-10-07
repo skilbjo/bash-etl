@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+
+metric_rows_inserted(){
+  local metric='rows_inserted'
+  local job='dw-etl'
+  local task="$1"
+  local table="$2"
+  local value="$3"
+
+  datadog_metric "$metric" "$job" "$task" "$table" "$value" 2>/dev/null
+}
+
+metric_job_ran(){
+  local metric='job_ran'
+  local job='dw-etl'
+  local task="$1"
+
+  datadog_metric "$metric" "$job" "$task" '' '1' 2>/dev/null
+}

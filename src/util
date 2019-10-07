@@ -1,6 +1,42 @@
 #!/usr/bin/env bash
 set -eou pipefail
 
+util_setup(){
+  set -eou pipefail
+
+  local dir="$1"  # the below are not local; they are globals for child scripts
+  job_name="$(basename "$dir")"
+  resources_dir="${dir}/../../resources/${job_name}"
+  tmp_dir="$(mkdir -p "/tmp/${job_name}" && echo "/tmp/${job_name}")"
+
+  local hour="$(date +%H)" # if no ${var#0}, bash will interpret 08,09 as octcal and fault
+
+  if [[ $(whoami) == 'root' ]] || [[ $(whoami) == 'sbx_'* ]]; then
+    if [[ ${hour#0} -eq 23 ]]; then sleep 120; fi # tick over to next day *and* wait for replica to catch up
+    source "${src_dir}/athena"
+    add_aws_vars
+    export local_db='postgres://postgres@localhost/postgres'
+    export email_cmd="${src_dir}/email"
+  elif [[ $(whoami) == 'skilbjo' ]]; then
+    source "/Users/skilbjo/dev/engineering/src/athena.user"
+    export local_db="$(echo "$docker_psql_uri")" || export local_db='postgres://postgres@localhost/postgres'
+    export email_cmd="/Users/skilbjo/dev/engineering/src/email"
+  elif [[ -f ~/.bash-etl.rc ]]; then
+    source ~/.bash-etl.rc
+  else
+    >&2 echo "user is: $(whoami), and no rc file provided add to setup fn in util"
+  fi
+}
+
+add_aws_vars(){
+  if [[ ! -f ~/.aws/credentials ]] && [[ $(whoami) == 'root' ]]; then
+    echo "[default]"                                       >~/.aws/credentials
+    echo "aws_access_key_id = $aws_access_key_id"         >>~/.aws/credentials
+    echo "aws_secret_access_key = $aws_secret_access_key" >>~/.aws/credentials
+    sleep 1
+  fi
+}
+
 slack(){
   local msg="${1}"
 
@@ -13,7 +49,306 @@ slack(){
 }
 
 ping_healthchecks(){
-  job_uuid="$1"
+  local job_uuid="$1"
 
   curl -fsS --retry 3 "https://hc-ping.com/${job_uuid}"
+}
+
+query_athena(){
+  local file="$1"
+  set +u; local _date="$2"; set -u
+  local nesting="$(echo "$file" | tr -dc '\/' | awk '{print length;}')"
+
+  if [[ $nesting -gt 0 ]]; then
+    local nested_dir="$(echo "$file" | cut -d "/" -f "1-${nesting}")"
+    mkdir -p "${tmp_dir}/${nested_dir}"
+  fi
+
+  if [[ -z $_date ]]; then
+    local sql="$(cat "${resources_dir}/${file}.sql")"
+  else
+    local sql="$(cat "${resources_dir}/${file}.sql" | sed "s/:date/$_date/")"
+  fi
+
+  query "$sql" >"${tmp_dir}/${file}.csv"
+}
+
+load(){
+  local file="$1"
+
+  psql "$db_uri" \
+    -v ON_ERROR_STOP=1 \
+    -f "${resources_dir}/${file}.sql"
+}
+
+_psql(){
+  local db="$1" && db="$(echo "$db" | tr '-' '_')"
+  set +u; local db_override="$2"; set -u
+  if [[ -z $db_override ]]; then local cxn_str="$(eval echo "\$${db}_db")"; else local cxn_str="$(eval echo "\$${db_override}_db")"; fi
+  local file="$1"
+
+  local nesting="$(echo "$file" | tr -dc '\/' | awk '{print length;}')"
+
+  if [[ $nesting -gt 0 ]]; then
+    local nested_dir="$(echo "$file" | cut -d "/" -f "1-${nesting}")"
+    mkdir -p "${tmp_dir}/${nested_dir}"
+  fi
+
+  psql "$cxn_str" \
+    -v ON_ERROR_STOP=1 \
+    -AF',' \
+    --pset footer \
+    -f "${resources_dir}/${file}.sql"
+}
+
+_orc(){
+  local file="$1"   # no csv; ie accounts
+  local schema="$2"
+  set +u; local timestamp_format="$3"; set -u
+  local jar_version='1.6.0'
+
+  if [[ $(whoami) == 'root' ]]; then
+    local jar_dir="$src_dir"
+  elif [[ $(whoami) == 'skilbjo' ]]; then
+    local jar_dir='/Users/skilbjo/dev/engineering/src'
+  fi
+
+  if [[ -z $timestamp_format ]]; then
+    java -jar "${jar_dir}/orc-tools-${jar_version}-uber.jar" convert "${tmp_dir}/${file}.csv" -s "$schema" -o "${tmp_dir}/${file}.orc"
+  else
+    java -jar "${jar_dir}/orc-tools-${jar_version}-uber.jar" convert "${tmp_dir}/${file}.csv" -s "$schema" -t "$timestamp_format" -o "${tmp_dir}/${file}.orc"
+  fi
+}
+
+_orc_to_json(){
+  local file="$1"           # no csv; ie accounts
+  local jar_version='1.6.0'
+
+  if [[ $(whoami) == 'root' ]]; then
+    local jar_dir="$src_dir"
+    local gnu_sed="$(which sed)"
+  elif [[ $(whoami) == 'skilbjo' ]]; then
+    local jar_dir='/Users/skilbjo/dev/engineering/src'
+    local gnu_sed="$(which gsed)"
+  fi
+
+  # dask relies on pyarrow, which is very difficult to install on alpine linux
+  #python3 -c "import sys, dask.dataframe as dd; dd.read_orc(path='${tmp_dir}/${file}.orc').to_csv(filename='${tmp_dir}/${file}.csv',header=False,index=False,single_file=True)"
+  java -jar "${jar_dir}/orc-tools-${jar_version}-uber.jar" data "${tmp_dir}/${file}.orc" | \
+    "$gnu_sed" ':a;$!N;1,2ba;P;$d;D' \
+    >"${tmp_dir}/${file}.json"
+  # gnu_sed to remove last two lines of ORC output, which are "--------" and an empty line (neither are valid json)
+  # breaks on large files: python3 -c "import sys, pandas as pd; print(pd.read_json(sys.stdin.read(), lines=True).to_csv(header=False,index=False))"
+}
+
+_gzip(){
+  local file="$1"
+  local ext="$2"
+
+  if [[ -f ${tmp_dir}/${file}.${ext}.gz ]]; then rm "${tmp_dir}/${file}.${ext}.gz"; fi
+
+  if [[ $(whoami) == 'sbx_'* ]]; then
+    gzip -9 "${tmp_dir}/${file}.${ext}" # aws lambda doesn't have -k option
+  else
+    gzip -9 -k "${tmp_dir}/${file}.${ext}"
+  fi
+}
+
+_gzip_c(){
+  local file="$1"
+
+  _gzip "$file" 'csv'
+}
+
+_gzip_j(){
+  local file="$1"
+
+  _gzip "$file" 'json'
+}
+
+_bzip(){
+  local file="$1"
+
+  if [[ ! -f ${tmp_dir}/${file} ]]; then 'File doesnt exist!' && exit 1; fi
+
+  bzip2 -z -9 "${tmp_dir}/${file}"
+}
+
+send_to_s3(){
+  local file="$1"       #   'accounts.csv.gz'
+  local s3_path="$2"    #   'datalake/service/file.csv.gz'
+  local file_extension="${file##*.}" # .gz
+  local compressed_extensions=('gz' 'csv.gz' 'json.gz' 'bz2' 'csv.bz2' 'json.bz2')
+  set +u; local soft_fail="$3"; set -u
+  set +u; local env="$env"; set -u
+
+  if [[ -z $env ]] || [[ $env != 'prod' ]]; then
+    s3_path="$(echo $s3_path | sed 's/datalake/staging/2')" # bash-etl/datalake/datalake/folder/file -> bash-etl/datalake/staging/folder/file
+  fi
+
+  if [[ ! -f ${tmp_dir}/${file} ]]; then
+    echo "File ${tmp_dir}/${file} doesn't exist (target = ${s3_path})"
+    if [[ -z $soft_fail ]]; then exit 1; fi
+  fi
+
+  if [[ $(ls -l "${tmp_dir}/${file}" | awk '{print $5}') -eq 0 ]]; then
+    echo "File ${tmp_dir}/${file} is a zero byte file!"
+    if [[ -z $soft_fail ]]; then exit 1; fi
+  fi
+
+  if [[ ${compressed_extensions[*]} =~ $file_extension ]]; then
+    local original_file="${file%.*}"                      # accounts.csv
+    local original_file_extension="${original_file##*.}"  # .csv
+    local file_no_extension="${file%%.*}"                 # accounts
+
+    if [[ ! -f ${tmp_dir}/${original_file} ]]; then # accounts.csv.gz exists, but not accounts.csv; let's decompress
+      case "$file_extension" in
+        gz)   gzip  -d "${tmp_dir}/${file}" ;; # gzip omits the .gz extention
+        bz2 ) bzip2 -d "${tmp_dir}/${file}" ;;
+        * ) echo "Don't recognize $file_extension !" ;;
+      esac
+    fi
+
+    if [[ $(wc -l "${tmp_dir}/${original_file}" | awk '{print $1}') -le 1 ]]; then
+      echo "File ${tmp_dir}/${original_file} only has a header!"
+      if [[ -z $soft_fail ]]; then exit 1; fi
+    fi
+
+    if [[ -f ${tmp_dir}/${original_file} ]]; then # accounts.csv exists, but not accounts.csv.gz; let's compress
+      case "$file_extension" in
+        gz  ) case $original_file_extension in
+                csv )  _gzip_c "$file_no_extension" ;;
+                json ) _gzip_j "$file_no_extension" ;;
+              esac ;;
+        bz2 ) _bzip "$file" ;;
+      esac
+    fi
+  else
+    if [[ $(wc -l "${tmp_dir}/${file}" | awk '{print $1}') -le 1 ]]; then
+      echo "File ${tmp_dir}/${file} only has a header!"
+      if [[ -z $soft_fail ]]; then exit 1; fi
+    fi
+  fi
+
+  if [[ $(whoami) == 'root' ]] || [[ $(whoami) == 'sbx_'* ]]; then
+    if [[ -n $soft_fail ]]; then set +e; fi
+      aws s3 cp "${tmp_dir}/${file}" "s3://skilbjo-data/${s3_path}"
+    if [[ -n $soft_fail ]]; then set -e; fi
+  else
+    if [[ -n $soft_fail ]]; then set +e; fi
+      aws s3 cp --profile skilbjo "${tmp_dir}/${file}" "s3://skilbjo-data/${s3_path}"
+    if [[ -n $soft_fail ]]; then set -e; fi
+  fi
+}
+
+get_from_s3(){
+  local s3_path="s3://skilbjo-data/${1}" #   'datalake/service/file.csv.gz'
+  local file="$2"                        #   'accounts.csv.gz'
+
+  if [[ $(whoami) == 'root' ]] || [[ $(whoami) == 'sbx_'* ]]; then
+    aws s3 cp "$s3_path" "${tmp_dir}/${file}"
+  else
+    aws s3 cp --profile skilbjo "$s3_path" "${tmp_dir}/${file}"
+  fi
+}
+
+datadog_metric(){
+  local metric="$1"  # rows_inserted
+  local job="$2"     # datalake-etl
+  local task="$3"    # mongo
+  set +u; local table="$4"; set -u   # mongo_builds
+  local value="$5"   # 30000
+  local now="$(date +%s)"
+  if [[ -z $table ]]; then
+    local payload='{"series": [{"metric": "bash_etl.'$metric'",
+                                "points": [['$now', '$value']],
+                                "type"  : "guage",
+                                "tags"  : ["environment:prod",
+                                           "application:bash-etl",
+                                           "job:'$job'",
+                                           "task:'$task'"]}]}'
+  else
+    local payload='{"series": [{"metric": "bash_etl.'$metric'",
+                                "points": [['$now', '$value']],
+                                "type"  : "guage",
+                                "tags"  : ["environment:prod",
+                                           "application:bash-etl",
+                                           "job:'$job'",
+                                           "task:'$task'",
+                                           "table:'$table'"]}]}'
+  fi
+  local json="$(echo "$payload" | jq -r '. | tojson')"
+
+  set +e; curl -X POST \
+    --retry 3 \
+    -H 'Content-type: application/json' \
+    -d "$json" \
+    "https://api.datadoghq.com/api/v1/series?api_key=${datadog_api_key}"; set -e
+}
+
+get_line_count(){
+  local file="$1"
+
+  wc -l "$file" | awk '{print $1}'
+}
+
+start_local_postgres_server(){
+  if [[ $(whoami) == 'root' ]]; then
+    echo 'start_local_postgres_server called'
+    local postgres_processes="$(pgrep postgres | wc -l)"
+
+    if [[ $postgres_processes -eq 0 ]]; then
+      export PGDATA='/var/lib/postgresql/data'
+
+      mkdir -p /run/postgresql && \
+        chown -R postgres:postgres /run/postgresql && \
+        su postgres -c "mkdir -p $PGDATA" && \
+        su postgres -c 'initdb /var/lib/postgresql/data' && \
+        echo "host all  all    0.0.0.0/0  md5" >>"${PGDATA}/pg_hba.conf" && \
+        echo "listen_addresses='*'" >>"${PGDATA}/postgresql.conf" && \
+        su postgres -c 'pg_ctl start' && \
+        sleep 5
+    fi
+  fi
+}
+
+_insert_metric(){
+  local job="$1"
+  local task="$2"
+  local metric_name="$3"
+  local metric_value="$4"
+  set +u; local _date="$5"; set -u
+
+  if [[ -n $_date ]]; then
+    psql "$db_uri" \
+      -c "insert into status.job_log(job,task,metric_date,metric_name,metric_value) values" \
+      -c "('${job}','${task}','${metric_date}','${metric_name}','${metric_value}';"
+  elif [[ -z $_date ]]; then
+    psql "$db_uri" \
+      -c "insert into status.job_log(job,task,metric_name,metric_value) values ('${job}','${task}','${metric_name}','${metric_value}');"
+  fi
+}
+
+get_yesterday(){
+  local _date="$1"
+
+  if [[ $(whoami) == 'root' ]] || [[ $(whoami) == 'sbx_'* ]]; then
+    _date="$(date -d "$_date - 1 day" +%F)"
+  else
+    _date="$(gdate -d "$_date - 1 day" +%F)"
+  fi
+
+  echo "$_date"
+}
+
+add_one_day(){
+  local _date="$1"
+
+  if [[ $(whoami) == 'root' ]] || [[ $(whoami) == 'sbx_'* ]]; then
+    _date="$(date -d "$_date + 1 day" +%F)"
+  else
+    _date="$(gdate -d "$_date + 1 day" +%F)"
+  fi
+
+  echo "$_date"
 }

@@ -4,18 +4,15 @@ set -eou pipefail
 dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )/../../" && pwd )" && cd "$dir"
 app="$(basename $(pwd))"
 arch=''
-
-cd "${dir}/../.."
+img=''
+job_cmd='usr/local/deploy/bin/run-job'
 
 case "$(uname -m)" in
   amd64* | x_86* | x86_64* )
-    arch='x86' ;;
-  arm* )
-    arch='arm' ;;
+    img="quay.io/skilbjo/${app}:latest" ;;
+  arm* ) arch='arm'
+    img="quay.io/skilbjo/${app}:${arch}" ;;
 esac
-
-img="quay.io/skilbjo/$app:$arch"
-job_cmd='usr/local/deploy/bin/run-job'
 
 get_current_artifacts(){
   # any scripts need updating?
@@ -32,19 +29,26 @@ get_current_artifacts(){
 }
 
 update_crond(){
-  case "$(uname)" in
-    ('Linux') sed -i '1i SHELL=/usr/bin/bash'         "${dir}/deploy/tasks/crontab"
-              sed -i '1i cmd="deploy/bin/run-docker"' "${dir}/deploy/tasks/crontab" ;;
+  case "$(whoami)" in
+    circleci ) echo '' ;;
+    * ) case "$(uname)" in
+          ('Linux') sed -i '1i SHELL=/usr/bin/bash'         "${dir}/deploy/tasks/crontab"
+                    sed -i '1i cmd="deploy/bin/run-docker"' "${dir}/deploy/tasks/crontab" ;;
+        esac
+        sudo bash -c "cat ${dir}/deploy/tasks/crontab >/etc/cron.d/${app}"
   esac
-  sudo bash -c "cat ${dir}/deploy/tasks/crontab >/etc/cron.d/${app}"
 }
 
 get_current_artifacts && \
   update_crond
 
 docker run --rm \
-  --name="$(echo $app $@ | tr ' ' '_')" \
+  --name="$(echo "$app" "$@" | tr ' ' '_')" \
+  -e aws_access_key_id="$(cat ~/.aws/credentials | grep -A 2 skilbjo-robot | grep aws_access_key_id | awk '{print $3}')" \
+  -e aws_secret_access_key="$(cat ~/.aws/credentials | grep -A 2 skilbjo-robot | grep aws_secret_access_key | awk '{print $3}')" \
+  -e env="$(echo "$env")" \
   -e db_uri="$(echo $db_uri)" \
+  -e circleci_api_key="$(echo $circleci_api_key)" \
   -e healthchecks_vacuum="$(echo $healthchecks_vacuum)" \
   "$img" \
-  "$job_cmd" $@
+  "$job_cmd" "$@"

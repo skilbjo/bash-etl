@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+
+dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )/.." && pwd )" && cd "$dir"
+src_dir="${dir}/.."
+source "${src_dir}/util"
+source "${dir}/util"
+util_setup "$dir"
+
+task=''
+
+usage(){ echo "Usage: insights: ${0} [--date <date>] [--task <task>]" 1>&2; exit 1; }
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -t|--task)  task="$2"; shift ;;
+    --backfill) task='backfill' ;;
+    --testing)  task='testing' ;;
+    *) break ;;
+  esac
+  shift
+done
+if [[ -z $task ]]; then usage; fi
+
+insights(){
+  local url="https://circleci.com/api/v2/insights/gh/skilbjo/iris/workflows?circle-token=${circleci_api_key}"
+  local url="https://circleci.com/api/v2/insights/gh/skilbjo/iris/workflows/build?circle-token=${circleci_api_key}"
+  local url="https://circleci.com/api/v2/insights/gh/skilbjo/iris/workflows/build?branch=master&circle-token=${circleci_api_key}"
+
+  curl "$url"
+}
+
+case "$task" in
+  insights ) insights ;;
+
+  testing ) insights
+    echo 'Job complete!' && sleep "$(echo "60 * 60 * 24 * 7" | bc)" ;;
+
+  * ) echo 'In dw-etl but got no args.' && exit 1 ;;
+esac
+

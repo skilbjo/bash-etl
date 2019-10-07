@@ -2,18 +2,18 @@
 set -eou pipefail
 
 dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )/../../" && pwd )" && cd "$dir"
-app="$(basename $(pwd))"
 src_dir="${dir}/src"
-tmp_dir='/tmp'
 _job="$1"
 set +u; _date="$2"; set -u
 cmd=''
+
+if [[ -z $_date ]]; then _date="$(date +%F)"; fi
 
 prereqs(){
   if [[ $(whoami) == 'root' ]]; then
     case "$(uname -m)" in
       arm* )
-        deploy_dir='/usr/local/deploy/bin'
+        local deploy_dir='/usr/local/deploy/bin'
         set +e; eval "${deploy_dir}/apk-arm"; update-ca-certificates; apk fix || echo 'Unable to reach apk...'; set -e; # set +e when apk not available
     esac
 fi
@@ -21,12 +21,17 @@ fi
 
 case "$_job" in
   datalake-etl )
-    if [[ -z $_date ]]; then _date="$(date +%F)"; fi
-    cmd="${src_dir}/datalake-etl/run-it" ;;
+    cmd="${src_dir}/datalake-etl/run-it --task prod --date $_date" ;;
+
+  dw-etl )
+    cmd="${src_dir}/dw-etl/run-it --task dw-etl --date $_date" ;;
+
   vacuum )
-    cmd="${src_dir}/vacuum/run-it weekly" ;;
-  * )
-    echo 'No args provided' && exit 1 ;;
+    cmd="${src_dir}/maintenance/run-it --task vacuum" ;;
+
+  sleep )         sleep "$(echo "60 * 60 * 24 * 7" | bc)" ;;
+  * ) echo 'In deploy/bin/run-job, and couldnt find a matching argument to run'
+      echo "Got $* , which didn't match what job expected" && exit 1 ;;
 esac
 
 prereqs && \

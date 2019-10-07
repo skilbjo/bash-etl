@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+set -eou pipefail
+
+vacuum(){
+  table="$1"
+  set +u; _full="$2"; set -u
+
+  if [[ -z $_full ]]; then
+    psql "$db_uri" \
+      -v ON_ERROR_STOP=1 \
+      -c "vacuum verbose analyze ${table};"
+  else
+    psql "$db_uri" \
+      -v ON_ERROR_STOP=1 \
+      -c "vacuum full ${table};"
+  fi
+}
+
+refresh_view(){
+  local table="$1"
+
+  psql "$db_uri" \
+    -v ON_ERROR_STOP=1 \
+    -c "refresh materialized view ${table};"
+}
+
+_psql_maintenance(){
+  local file="$1"
+
+  psql "$db_uri" \
+    -v ON_ERROR_STOP=1 \
+    -AF',' \
+    -t \
+    --pset footer \
+    -f "${resources_dir}/${file}.sql" \
+    >"${tmp_dir}/${file}"
+}
+
+kill_pid(){
+  local pid="$1"
+
+  psql "$db_uri" \
+    -v ON_ERROR_STOP=1 \
+    -c "select pg_cancel_backend(${pid});"
+}
+
+kill_pids(){
+  file="$1"
+
+  cat "${tmp_dir}/${file}" | while read _pid; do
+    kill_pid "$_pid"
+  done
+}

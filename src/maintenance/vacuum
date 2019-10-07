@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+
+dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )" && cd "$dir"
+src_dir="${dir}/.."
+source "${src_dir}/util"
+source "${dir}/util"
+util_setup "$dir"
+
+task=''
+
+usage(){ echo "Usage: maintenance: ${0} [--task <task>]" 1>&2; exit 1; }
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -t|--task)  task="$2"; shift ;;
+    --testing)  task='testing' ;;
+    *) break ;;
+  esac
+  shift
+done
+if [[ -z $task ]]; then usage; fi
+
+weekly(){
+  local start="$SECONDS"
+
+  vacuum 'dw.markets_dim' && \
+    vacuum 'dw.portfolio_dim'
+
+  vacuum 'dw.currency_fact'   'full' && \
+    vacuum 'dw.equities_fact' 'full' && \
+    vacuum 'dw.markets_dim'   'full' && \
+    vacuum 'dw.portfolio_dim' 'full'
+
+  echo "vacuum-weekly took $(echo "$(( $SECONDS - $start )) / 60" | bc) minutes to complete"
+}
+
+case "$task" in
+  weekly )          weekly ;;
+  vacuum-analyze )  vacuum_analyze;;
+  vacuum-full )     vacuum_full ;;
+  testing )         vacuum_full ;;
+  * ) echo 'In vacuum job, bot got no args' && exit 1 ;;
+esac

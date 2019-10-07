@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+
+dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )" && cd "$dir"
+src_dir="${dir}/.."
+source "${src_dir}/util"
+source "${dir}/util"
+util_setup "$dir"
+
+_date=''
+task=''
+
+usage(){ echo "Usage: dw-etl: ${0} [--date <date>] [--task <task>]" 1>&2; exit 1; }
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -d|--date) _date="$2"; shift ;;
+    -t|--task)  task="$2"; shift ;;
+    --backfill) task='backfill' ;;
+    --testing)  task='testing' ;;
+    *) break ;;
+  esac
+  shift
+done
+if [[ -z $task ]]; then usage; fi
+if [[ ( $task == 'testing' || $task == 'backfill' || $task == 'insights' ) ]]; then
+  echo 'break' >/dev/null
+elif [[ -z $_date ]]; then usage; fi
+
+dw_etl(){
+  local _date="$1"
+
+  echo "Insights....." && "${dir}/insights/run-it" --task insights
+}
+
+case "$task" in
+  dw-etl )   dw_etl "$_date" ;;
+  insights ) insights ;;
+  backfill ) _date='2019-01-01' && day="$_date"
+    for i in {1..269}; do
+      echo "Some job.... for ${day}....." && "${dir}/service/run-it" --date "$day" --task job-ran-fact
+      day="$(add_one_day "$day")"
+    done ;;
+  testing ) _date='2019-07-30'
+    echo "Insights....." && "${dir}/insights/run-it" --task insights
+    echo 'Job complete!' && sleep "$(echo "60 * 60 * 24 * 7" | bc)" ;;
+  * ) echo 'In dw-etl but got no args.' && exit 1 ;;
+esac
