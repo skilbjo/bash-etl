@@ -33,7 +33,6 @@ dw_etl(){
 
 case "$task" in
   dw-etl )   dw_etl "$_date" ;;
-  insights ) insights ;;
   backfill ) _date='2019-01-01' && day="$_date"
     for i in {1..269}; do
       echo "Some job.... for ${day}....." && "${dir}/service/run-it" --date "$day" --task job-ran-fact

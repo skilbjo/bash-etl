@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+
+dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )" && cd "$dir"
+src_dir="${dir}/.."
+source "${src_dir}/util"
+util_setup "$dir"
+
+task=''
+
+usage(){ echo "Usage: insights: ${0} [--date <date>] [--task <task>]" 1>&2; exit 1; }
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -t|--task)  task="$2"; shift ;;
+    --backfill) task='backfill' ;;
+    --testing)  task='testing' ;;
+    *) break ;;
+  esac
+  shift
+done
+if [[ -z $task ]]; then usage; fi
+
+insights(){
+  local workflows_url="https://circleci.com/api/v2/insights/gh/skilbjo/iris/workflows?circle-token=${circleci_api_key}"
+  local jobs_all_branches="https://circleci.com/api/v2/insights/gh/skilbjo/iris/workflows/build?circle-token=${circleci_api_key}"
+  local jobs_master_branch="https://circleci.com/api/v2/insights/gh/skilbjo/iris/workflows/build?branch=master&circle-token=${circleci_api_key}"
+  local url="$jobs_master_branch"
+
+  # for testing
+  local result='{"items": [ { "id": "594837df-5538-42ac-8119-e4f46d01688d", "status": "success", "duration": 2624, "created_at": "2019-10-07T20:14:10.767Z", "stopped_at": "2019-10-07T20:57:55.111Z" }, { "id": "82b07dc3-b3ed-429b-ae89-4e9aaf8f13d7", "status": "success", "duration": 2858, "created_at": "2019-10-07T18:23:01.385Z", "stopped_at": "2019-10-07T19:10:39.397Z" } ] }'
+
+  result="$(curl "$url" | jq '.')"
+
+  echo "$result" | jq -r '.items[] | "\(.status) \(.duration) \(.stopped_at)"' | while read status duration stopped_at; do
+    influxdb "$status" "$duration" "$stopped_at"
+  done
+}
+
+influxdb(){ # https://v2.docs.influxdata.com/v2.0/write-data/
+  local status="$1"
+  local duration="$2"
+  local time="$(gdate -d "$3" +%s)"
+
+  # ${duration}i , the i stands for integer https://docs.influxdata.com/influxdb/v1.7/write_protocols/line_protocol_tutorial/
+    #--fail \
+  curl -X POST \
+    --header "Authorization: Token ${influxdb_api_key}" \
+    --url "https://us-west-2-1.aws.cloud2.influxdata.com/api/v2/write?org=skilbjo&precision=s&bucket=circleci" \
+    -d @- <<EOF
+circleci,status=${status} duration=${duration}i $time
+EOF
+
+    #--data-raw "mem,host=host1 used_percent=23.43234543 $(date +%s)" \
+    #--data-raw "mem,host=host1 used_percent=23.43234543 $(date +%s)" \
+    #--data-raw "mem,host=host1 used_percent=21.83599203 $(date +%s)" \
+}
+
+case "$task" in
+  insights ) insights ;;
+
+  influx )   influxdb ;;
+
+  testing ) insights
+    echo 'Job complete!' && sleep "$(echo "60 * 60 * 24 * 7" | bc)" ;;
+
+  * ) echo 'In dw-etl but got no args.' && exit 1 ;;
+esac
+
