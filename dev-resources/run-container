@@ -17,5 +17,6 @@ docker run --rm -it \
   -e env="$(echo 'dev')" \
   -e db_uri="$(echo $db_uri)" \
   -e circleci_api_key="$(echo $circleci_api_key)" \
+  -e influxdb_api_key="$(echo $influxdb_api_key)" \
   -e healthchecks_vacuum="$(echo $healthchecks_vacuum)" \
   "$app_name":dev bash
