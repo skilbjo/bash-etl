@@ -4,5 +4,8 @@
   app_dir="/home/skilbjo/dev/bash-etl"
 
 ## -- jobs ----------------------------------------
+### insights
+55 1 * * * skilbjo . /home/skilbjo/.profilelocal; cd "$app_dir" ; $cmd insights >/dev/null 2>&1
+
 ### vacuum
 55 0 * * 6 skilbjo . /home/skilbjo/.profilelocal; cd "$app_dir" ; $cmd vacuum >/dev/null 2>&1

@@ -19,7 +19,35 @@ while [[ $# -gt 0 ]]; do
 done
 if [[ -z $task ]]; then usage; fi
 
+get_projects(){
+  local url="https://circleci.com/api/v1.1/me?circle-token=${circleci_api_key}"
+
+  local result="$(curl "$url" | jq '.projects | keys' | grep -v circleci | jq '.' | sed 's/https:\/\/github.com\/skilbjo\///')" # get my projects, but not my work ones
+
+  echo "$result"
+}
+
+get_workflows(){
+  local project="$1"
+  local url="https://circleci.com/api/v1.1/recent-builds?circle-token=${circleci_api_key}"
+  local url="https://circleci.com/api/v1.1/project/gh/skilbjo/${project}/tree/master?circle-token=${circleci_api_key}&limit=1&filter=completed"
+
+  result="$(curl "$url" | jq -r '.[].workflows.job_name')"
+
+  echo "$result"
+}
+
 insights(){
+  local project="$1"
+  local workflow="$2"
+  local url="https://circleci.com/api/v2/insights/gh/skilbjo/${project}/workflows/${workflow}?branch=master&circle-token=${circleci_api_key}"
+
+  result="$(curl "$url" | jq '[.items[] | {status: .status, duration: .duration, stopped_at: .stopped_at}]')"
+
+  echo "$result"
+}
+
+insights_dev(){
   local workflows_url="https://circleci.com/api/v2/insights/gh/skilbjo/iris/workflows?circle-token=${circleci_api_key}"
   local jobs_all_branches="https://circleci.com/api/v2/insights/gh/skilbjo/iris/workflows/build?circle-token=${circleci_api_key}"
   local jobs_master_branch="https://circleci.com/api/v2/insights/gh/skilbjo/iris/workflows/build?branch=master&circle-token=${circleci_api_key}"
@@ -32,36 +60,50 @@ insights(){
 
   echo "$result" | jq -r '.items[] | "\(.status) \(.duration) \(.stopped_at)"' | while read status duration stopped_at; do
     influxdb "$status" "$duration" "$stopped_at"
+    #jq -n --arg status "$status" --arg duration "$duration" --arg stopped_at "$stopped_at" '{status:$status, duration:$duration, stopped_at:$stopped_at} | [.]'
   done
 }
 
 influxdb(){ # https://v2.docs.influxdata.com/v2.0/write-data/
-  local status="$1"
-  local duration="$2"
-  local time="$(gdate -d "$3" +%s)"
+  local project="$1"
+  local status="$2"
+  local duration="$3"
+  local time="$(gdate -d "$4" +%s)"
+  local influxdb_line_protocol="${project},status=${status} duration=${duration}i $time"
 
   # ${duration}i , the i stands for integer https://docs.influxdata.com/influxdb/v1.7/write_protocols/line_protocol_tutorial/
-    #--fail \
   curl -X POST \
+    --fail \
     --header "Authorization: Token ${influxdb_api_key}" \
     --url "https://us-west-2-1.aws.cloud2.influxdata.com/api/v2/write?org=skilbjo&precision=s&bucket=circleci" \
     -d @- <<EOF
-circleci,status=${status} duration=${duration}i $time
+$influxdb_line_protocol
 EOF
+}
 
-    #--data-raw "mem,host=host1 used_percent=23.43234543 $(date +%s)" \
-    #--data-raw "mem,host=host1 used_percent=23.43234543 $(date +%s)" \
-    #--data-raw "mem,host=host1 used_percent=21.83599203 $(date +%s)" \
+get_metrics_post_to_influx(){
+  local workflow=''
+  local build_results=''
+
+  get_projects | jq -r '.[]' | while read project; do
+    workflow="$(get_workflows "$project")"
+    build_results="$(insights "$project" "$workflow" | jq -r '.')"
+
+    echo "$build_results" | jq -r '.[] | "\(.status) \(.duration) \(.stopped_at)"' | while read status duration stopped_at; do
+      influxdb "$project" "$status" "$duration" "$stopped_at"
+    done
+  done
 }
 
 case "$task" in
+  get-metrics-and-post-to-influx ) get_metrics_post_to_influx ;;
+
   insights ) insights ;;
 
   influx )   influxdb ;;
 
-  testing ) insights
+  testing )  post_metrics
     echo 'Job complete!' && sleep "$(echo "60 * 60 * 24 * 7" | bc)" ;;
-
   * ) echo 'In dw-etl but got no args.' && exit 1 ;;
 esac
 

@@ -26,6 +26,9 @@ case "$_job" in
   dw-etl )
     cmd="${src_dir}/dw-etl/run-it --task dw-etl --date $_date" ;;
 
+  insights )
+    cmd="${src_dir}/insights/run-it --task get-metrics-and-post-to-influx" ;;
+
   vacuum )
     cmd="${src_dir}/maintenance/run-it --task vacuum" ;;
 
