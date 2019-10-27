@@ -68,7 +68,7 @@ influxdb(){ # https://v2.docs.influxdata.com/v2.0/write-data/
   local project="$1"
   local status="$2"
   local duration="$3"
-  if [[ $(whoami) == 'root' ]] || [[ $(whoami) == 'sbx_'* ]]; then
+  if [[ $(whoami) == 'root' ]] || [[ $(whoami) == 'circleci' ]] || [[ $(whoami) == 'sbx_'* ]]; then
     local time="$(date -d "$4" +%s)"
   else
     local time="$(gdate -d "$4" +%s)"
@@ -110,4 +110,3 @@ case "$task" in
     echo 'Job complete!' && sleep "$(echo "60 * 60 * 24 * 7" | bc)" ;;
   * ) echo 'In dw-etl but got no args.' && exit 1 ;;
 esac
-
