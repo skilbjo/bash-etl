@@ -75,6 +75,9 @@ influxdb(){ # https://v2.docs.influxdata.com/v2.0/write-data/
   fi
   local influxdb_line_protocol="${project},status=${status} duration=${duration}i $time"
 
+    # delete this debug print out some debug info once jq error resolved
+    echo "$influxdb_line_protocol"
+
   # ${duration}i , the i stands for integer https://docs.influxdata.com/influxdb/v1.7/write_protocols/line_protocol_tutorial/
   curl -X POST \
     --fail \
@@ -92,6 +95,12 @@ get_metrics_post_to_influx(){
   get_projects | jq -r '.[]' | while read project; do
     workflow="$(get_workflows "$project")"
     build_results="$(insights "$project" "$workflow" | jq -r '.')"
+
+    # occasionally see this error (not on every run):
+    # jq: error (at <stdin>:0): Cannot iterate over null (null)
+    # from https://app.circleci.com/jobs/github/skilbjo/lambdas/74
+    # until that is resolved, let's print out some debug info
+    echo "$build_results"
 
     echo "$build_results" | jq -r '.[] | "\(.status) \(.duration) \(.stopped_at)"' | while read status duration stopped_at; do
       influxdb "$project" "$status" "$duration" "$stopped_at"
