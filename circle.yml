@@ -1,19 +1,29 @@
-version: 2
+version: 2.1
+
+executors:
+  bash:
+    working_directory: ~/bash-etl
+    environment:
+      - PATH: /usr/local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/home/circleci/.local/bin:/root/.local/bin
+    docker:
+      - image: cimg/base:stable
+
+commands:
+  shellcheck:
+    steps:
+      - run: wget -qO- "https://storage.googleapis.com/shellcheck/shellcheck-v0.6.0.linux.x86_64.tar.xz" | tar -xJv; cp shellcheck-v0.6.0/shellcheck /usr/bin
+      - run: find deploy/ src/ test/ dev-resources/ -type f | grep -vE '(\.(py|pyc|sql|ya?ml|md|csv|json|jsonl|jpg|txt)$|Dockerfile|.DS_Store)' | xargs shellcheck --shell bash --severity error
 
 jobs:
-  build:
-    working_directory: ~/bash-etl
-    docker:
-    - image: circleci/clojure:lein-2.8.1
-    environment:
-      - PATH: /usr/local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/home/circleci/.local/bin
+  test-and-publish:
+    executor: bash
     steps:
       - checkout
       - setup_remote_docker
+      - shellcheck
       - run: deploy/bin/publish-image
 
 workflows:
-  version: 2
   build:
     jobs:
-      - build
+      - test-and-publish
