@@ -24,7 +24,7 @@ get_current_artifacts(){
   #docker ps -a | grep "$app" | awk '{print $1}' | uniq | xargs docker rm -f
 
   # remove all app images
-  docker images | grep "$app" | awk '{print $3}' | uniq | xargs docker rmi -f
+  docker images | grep "$app" | awk '{print $3}' | uniq | xargs docker rmi -f || echo 'no images to remove'
   set -e
 }
 
